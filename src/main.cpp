@@ -17,7 +17,7 @@
 class PageHome;
 // tft
 TFT_eSPI tft = TFT_eSPI();
-TFT_eSprite sprite = TFT_eSprite(&tft); //处理闪屏问题
+// TFT_eSprite sprite = TFT_eSprite(&tft); //处理闪屏问题
 
 // wifi
 const char* ssid = "ESP32_AP";
@@ -43,6 +43,15 @@ PubSubClient client(espClient);
 
 // 全局状态
 int pageIndex = 0;
+
+// 按键
+#define PS2_X     35
+#define PS2_Y     34
+#define SW        32
+const int centerX = 1900; // 摇杆X轴居中的原始ADC值
+const int centerY = 1900; // 摇杆Y轴居中的原始ADC值
+// 死区阈值：消除居中位置附近的微小波动
+const int deadZone = 100;
 
 void printLog(const String& info)
 {
@@ -214,8 +223,6 @@ void setup()
     tft.loadFont(song10);
     tft.setRotation(0);
     tft.setSwapBytes(true);
-    tft.setCursor(0, 150); //设置光标位置
-    delay(1000);
     // sprite.setColorDepth(8);
     // sprite.setSwapBytes(true);
     // if (!sprite.createSprite(128, 128))
@@ -259,6 +266,17 @@ void setup()
     pageHome.setTimeClient(&timeClient);
     pageImage.setTft(&tft);
 
+    // 配置输入模式
+    pinMode(PS2_X, INPUT);
+    pinMode(PS2_Y, INPUT);
+    pinMode(SW, INPUT_PULLUP);
+
+    Serial.printf("x: %d, y: %d, z: %d\n",
+                  analogRead(PS2_X), //读模拟信号
+                  analogRead(PS2_Y),
+                  digitalRead(SW)); //读数字信号
+
+
     Serial.println("setup success!!!");
 }
 
@@ -281,5 +299,63 @@ void loop()
         pageImage.show();
     }
 
-    // tft.pushImage(10, 55,  96, 128,  astronautallArray[i]);
+    if (digitalRead(SW) == 0)
+    {
+        tft.fillScreen(TFT_BLACK);
+        pageIndex = 0;
+    }
+
+    // 1. 读取原始模拟值
+    int rawX = analogRead(PS2_X);
+    int rawY = analogRead(PS2_Y);
+    // 2. 转换为以(0,0)为中心的坐标
+    int mappedX = map(rawX, 0, 4095, -100, 100); // 将原始范围映射到-100到100
+    int mappedY = map(rawY, 0, 4095, -100, 100); // ESP32 ADC分辨率通常为12位(0-4095)
+
+    // 3. 应用死区，消除居中附近的抖动
+    if (abs(mappedX) < deadZone) mappedX = 0;
+    if (abs(mappedY) < deadZone) mappedY = 0;
+
+    // 4. 打印结果用于调试
+    Serial.print("X: ");
+    Serial.print(mappedX);
+    Serial.print(" | Y: ");
+    Serial.println(mappedY);
+
+    // 5. 根据坐标判断方向（示例）
+    if (mappedX == 0 && mappedY == 0)
+    {
+        Serial.println("Stop");
+        // 执行停止动作
+    }
+    else
+    {
+        tft.fillScreen(TFT_BLACK);
+        // 判断主要方向
+        if (mappedY > 50)
+        {
+            pageIndex++;
+            Serial.println("Forward");
+            // 执行向前动作
+        }
+        else if (mappedY < -50)
+        {
+            pageIndex--;
+            Serial.println("Backward");
+            // 执行向后动作
+        }
+
+        if (mappedX > 50)
+        {
+            pageIndex++;
+            Serial.println("Right");
+            // 执行向右动作
+        }
+        else if (mappedX < -50)
+        {
+            pageIndex--;
+            Serial.println("Left");
+            // 执行向左动作
+        }
+    }
 }
